@@ -108,16 +108,6 @@ CREATE TABLE task_logs (
 - `source`: "manual", "todoist", "notion"
 - `metadata`: JSON for project name, priority, labels, etc.
 
-**Example Insert:**
-```json
-{
-  "user_id": "550e8400-e29b-41d4-a716-446655440000",
-  "title": "Study for exam",
-  "due_date": "2024-05-30",
-  "source": "manual"
-}
-```
-
 ---
 
 ### JournalEntries Table
@@ -136,23 +126,6 @@ CREATE TABLE journal_entries (
 );
 ```
 
-**Fields:**
-- `content_encrypted`: Full journal text, encrypted at rest
-- `date`: Which day it's about (can journal about past days)
-- `sentiment_score`: -1 (very negative) to 1 (very positive), computed via TextBlob
-- `word_count`: Number of words (computed)
-- `detected_topics`: Array like ["stress", "sleep", "social_withdrawal"]
-- `raw_tokens`: Word frequency map for drift analysis
-
-**Example Insert:**
-```json
-{
-  "user_id": "550e8400-e29b-41d4-a716-446655440000",
-  "date": "2024-05-28",
-  "content": "Felt really anxious today. Didn't sleep well. Couldn't focus on work."
-}
-```
-
 ---
 
 ### UserBaselineMetrics Table
@@ -162,53 +135,22 @@ CREATE TABLE user_baseline_metrics (
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     period_start DATE NOT NULL,
     period_end DATE NOT NULL,
-    
-    -- Sleep metrics
     avg_sleep_duration_minutes FLOAT NOT NULL,
     avg_sleep_start_time TIME,
     avg_sleep_end_time TIME,
     sleep_consistency_score FLOAT CHECK (sleep_consistency_score >= 0 AND sleep_consistency_score <= 100),
-    
-    -- Activity metrics
     avg_daily_tasks_completed FLOAT NOT NULL,
     avg_task_completion_rate FLOAT NOT NULL CHECK (avg_task_completion_rate >= 0 AND avg_task_completion_rate <= 100),
     peak_productivity_hours JSONB DEFAULT '[]',
-    
-    -- Social metrics
     avg_daily_messages_sent FLOAT DEFAULT 0,
     avg_response_time_minutes FLOAT DEFAULT 0,
-    
-    -- Text metrics
     avg_journal_sentiment FLOAT DEFAULT 0,
     avg_journal_length_words FLOAT DEFAULT 0,
     vocabulary_diversity FLOAT DEFAULT 0 CHECK (vocabulary_diversity >= 0 AND vocabulary_diversity <= 1),
-    
     created_at TIMESTAMP DEFAULT NOW(),
     status VARCHAR(20) DEFAULT 'active',
     INDEX idx_baseline_user (user_id, created_at DESC)
 );
-```
-
-**Purpose:** Stores the user's "normal state" calculated from their first 14 days of data.
-
-**Example (After 14 days of data collection):**
-```json
-{
-  "user_id": "550e8400-e29b-41d4-a716-446655440000",
-  "period_start": "2024-05-15",
-  "period_end": "2024-05-28",
-  "avg_sleep_duration_minutes": 450.0,
-  "avg_sleep_start_time": "23:30:00",
-  "avg_sleep_end_time": "07:30:00",
-  "sleep_consistency_score": 78.5,
-  "avg_daily_tasks_completed": 6.8,
-  "avg_task_completion_rate": 82.5,
-  "peak_productivity_hours": [9, 10, 14, 15, 16],
-  "avg_journal_sentiment": 0.25,
-  "avg_journal_length_words": 185.0,
-  "vocabulary_diversity": 0.72,
-  "status": "active"
-}
 ```
 
 ---
@@ -232,33 +174,6 @@ CREATE TABLE drift_alerts (
 );
 ```
 
-**Fields:**
-- `alert_type`: "sleep_drift", "activity_drift", "sentiment_drift", "collapse_risk"
-- `severity`: "low" (10-30% deviation), "medium" (30-50%), "high" (>50%)
-- `dimension`: What's drifting (e.g., "sleep_duration", "task_completion_rate")
-- `deviation_percentage`: `(current - baseline) / baseline * 100`
-- `message`: Human-readable alert
-- `metadata`: Additional context like `{"days_in_drift": 5, "confidence": 0.87}`
-
-**Example Alert:**
-```json
-{
-  "user_id": "550e8400-e29b-41d4-a716-446655440000",
-  "alert_type": "sleep_drift",
-  "severity": "high",
-  "dimension": "sleep_duration",
-  "baseline_value": 450,
-  "current_value": 240,
-  "deviation_percentage": -46.67,
-  "message": "Your sleep duration is 47% below baseline. Averaging 4 hours vs your normal 7.5 hours over the last 5 days.",
-  "metadata": {
-    "days_in_drift": 5,
-    "confidence": 0.91,
-    "trend": "declining"
-  }
-}
-```
-
 ---
 
 ### CollapseRiskPrediction Table
@@ -268,25 +183,16 @@ CREATE TABLE collapse_risk_prediction (
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     predicted_at TIMESTAMP DEFAULT NOW(),
     valid_until TIMESTAMP DEFAULT NOW() + INTERVAL '14 days',
-    
-    -- Composite score
     risk_score FLOAT NOT NULL CHECK (risk_score >= 0 AND risk_score <= 100),
     confidence FLOAT NOT NULL CHECK (confidence >= 0 AND confidence <= 1),
-    
-    -- Component scores
     sleep_component FLOAT NOT NULL,
     activity_component FLOAT NOT NULL,
     sentiment_component FLOAT NOT NULL,
     social_component FLOAT NOT NULL,
-    
-    -- Factors & suggestions
     risk_factors JSONB NOT NULL DEFAULT '[]',
     recovery_suggestions JSONB NOT NULL DEFAULT '[]',
-    
-    -- Probabilities
     collapse_probability_7days FLOAT NOT NULL CHECK (collapse_probability_7days >= 0 AND collapse_probability_7days <= 1),
     collapse_probability_14days FLOAT NOT NULL CHECK (collapse_probability_14days >= 0 AND collapse_probability_14days <= 1),
-    
     INDEX idx_prediction_user_valid (user_id, valid_until DESC)
 );
 ```
@@ -296,16 +202,18 @@ CREATE TABLE collapse_risk_prediction (
 ## 2. Data Flow & User Journey
 
 ### Week 1: Baseline Collection (Days 1-14)
-
-User logs sleep, tasks, and journal entries. System stores data but doesn't detect drift yet (baseline_established = FALSE).
+- User logs sleep, tasks, journal entries
+- System stores data, baseline_established = FALSE
+- No drift detection yet
 
 ### Day 15: Baseline Calculation
+- System calculates average metrics
+- Sets baseline_established = TRUE
 
-System calculates average metrics from first 14 days and sets baseline_established = TRUE.
-
-### Days 16+: Drift Detection (Active)
-
-Nightly job compares recent data against baseline. If significant deviation detected, creates DriftAlert.
+### Days 16+: Drift Detection Active
+- Nightly job compares recent data against baseline
+- Creates DriftAlert if significant deviation
+- Calculates CollapseRiskPrediction if multiple drifts
 
 ---
 
@@ -317,44 +225,15 @@ Nightly job compares recent data against baseline. If significant deviation dete
 - journal_entries.content_encrypted
 
 **Flow:**
-1. User password → PBKDF2(password, salt) → user_encryption_key
+1. Password → PBKDF2(password, salt) → user_encryption_key
 2. Data → AES-256-GCM encrypt(plaintext, key) → ciphertext
 3. On read: decrypt(ciphertext, key) → plaintext
 
-**Security:** Database admin cannot read encrypted fields. Only user with correct password can decrypt.
+**Security:** Only user with correct password can decrypt their data.
 
 ---
 
-## 4. Indexes & Query Performance
-
-```sql
-CREATE INDEX idx_users_username ON users(username);
-CREATE INDEX idx_sleep_user_date ON sleep_logs(user_id, date DESC);
-CREATE INDEX idx_task_user_created ON task_logs(user_id, created_at DESC);
-CREATE INDEX idx_journal_user_date ON journal_entries(user_id, date DESC);
-CREATE INDEX idx_drift_user_severity ON drift_alerts(user_id, severity, detected_at DESC);
-CREATE INDEX idx_prediction_user_valid ON collapse_risk_prediction(user_id, valid_until DESC);
-```
-
----
-
-## 5. Data Retention & Privacy
-
-**Retention Policy:**
-- SleepLogs: 2 years
-- TaskLogs: 1 year
-- JournalEntries: 2 years
-- DriftAlerts: 6 months
-- CollapseRiskPrediction: 1 year
-
-**GDPR Compliance:**
-- Right to Access: Export data in JSON
-- Right to Deletion: Wipe all data within 30 days
-- Right to Portability: Download data in standard format
-
----
-
-## 6. API Examples
+## 4. API Examples
 
 ### Create Sleep Log
 ```bash
@@ -369,7 +248,7 @@ Authorization: Bearer <token>
 }
 ```
 
-### Get Collapse Risk Assessment
+### Get Collapse Risk
 ```bash
 GET /api/v1/predictions/collapse-risk
 Authorization: Bearer <token>
@@ -387,6 +266,16 @@ Response:
   ]
 }
 ```
+
+---
+
+## 5. Retention Policy
+
+- SleepLogs: 2 years
+- TaskLogs: 1 year
+- JournalEntries: 2 years
+- DriftAlerts: 6 months
+- CollapseRiskPrediction: 1 year
 
 ---
 

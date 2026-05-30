@@ -178,38 +178,6 @@ What would help?
 
 ---
 
-### 3.2 Transparency: What We Track & Why
-
-**User Dashboard > Settings > Data Transparency**
-
-```
-How We Track Your Wellbeing
-
-🛌 SLEEP TRACKING
-Why: Major changes signal stress
-What: Duration, start/end time, quality
-Privacy: Notes encrypted, only you read
-
-📋 TASK TRACKING
-Why: Productivity changes predict burnout
-What: Tasks created, completion rate
-Privacy: We don't read content, only count
-
-📝 JOURNAL ENTRIES
-Why: Your words are clearest signal
-What: Sentiment, topics, linguistic markers
-Privacy: Fully encrypted, no one but you sees
-
-🎯 WHAT WE DON'T TRACK
-- Location
-- Contacts
-- Browsing
-- Social media
-- Photos/videos
-```
-
----
-
 ## 4. Governance & Accountability
 
 ### 4.1 Ethics Board

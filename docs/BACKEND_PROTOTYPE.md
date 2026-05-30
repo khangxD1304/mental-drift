@@ -16,36 +16,32 @@ mental-drift-backend/
 │   │   ├── journal.py
 │   │   ├── alerts.py
 │   │   └── predictions.py
-│   ├── schemas/                # Pydantic request/response
+│   ├── schemas/
 │   │   ├── __init__.py
 │   │   ├── sleep.py
 │   │   ├── task.py
 │   │   └── journal.py
 │   ├── api/
 │   │   ├── __init__.py
-│   │   ├── auth.py            # Login/signup
-│   │   ├── sleep.py           # Sleep endpoints
-│   │   ├── tasks.py           # Task endpoints
-│   │   ├── journal.py         # Journal endpoints
-│   │   ├── baseline.py        # Baseline calculation
-│   │   ├── alerts.py          # Alert detection
-│   │   └── predictions.py     # Risk scoring
+│   │   ├── auth.py
+│   │   ├── sleep.py
+│   │   ├── tasks.py
+│   │   ├── journal.py
+│   │   ├── baseline.py
+│   │   ├── alerts.py
+│   │   └── predictions.py
 │   ├── ml/
 │   │   ├── __init__.py
-│   │   ├── drift_detector.py  # Anomaly detection engine
-│   │   ├── risk_predictor.py  # Collapse prediction
-│   │   ├── nlp_processor.py   # Sentiment + tokenization
-│   │   └── utils.py           # ML helpers
+│   │   ├── drift_detector.py
+│   │   ├── risk_predictor.py
+│   │   ├── nlp_processor.py
+│   │   └── utils.py
 │   └── services/
 │       ├── __init__.py
-│       ├── encryption.py      # Data encryption
-│       └── notifications.py   # Alert delivery
+│       ├── encryption.py
+│       └── notifications.py
 ├── migrations/
-│   ├── versions/
-│   └── env.py
 ├── tests/
-│   ├── __init__.py
-│   └── conftest.py
 ├── requirements.txt
 ├── .env.example
 ├── docker-compose.yml
@@ -54,7 +50,7 @@ mental-drift-backend/
 
 ---
 
-## 1. Configuration & Setup
+## 1. Configuration
 
 ### config.py
 ```python
@@ -69,9 +65,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str = os.getenv("SECRET_KEY", "your-secret-key")
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
-    ENCRYPTION_KEY: str = os.getenv("ENCRYPTION_KEY", "base64-key")
     DEBUG: bool = os.getenv("DEBUG", "false").lower() == "true"
-    API_VERSION: str = "v1"
     
     # ML Thresholds
     BASELINE_DAYS: int = 14
@@ -85,25 +79,6 @@ class Settings(BaseSettings):
 settings = Settings()
 ```
 
-### database.py
-```python
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, declarative_base
-from app.config import settings
-
-DATABASE_URL = settings.DATABASE_URL
-engine = create_engine(DATABASE_URL, echo=settings.DEBUG)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-```
-
 ---
 
 ## 2. ML Core: Drift Detection
@@ -111,7 +86,6 @@ def get_db():
 ### ml/drift_detector.py
 ```python
 import numpy as np
-from datetime import datetime, timedelta
 
 class DriftDetector:
     """Detects departure from baseline."""
@@ -153,28 +127,12 @@ class DriftDetector:
             "baseline_value": baseline_rate,
             "current_value": round(rate, 2)
         }
-    
-    def detect_sentiment_drift(self, journal_entries_7d):
-        if len(journal_entries_7d) < 2:
-            return False, "low", {}
-        
-        recent = np.mean([e.sentiment_score for e in journal_entries_7d])
-        baseline = self.baseline.avg_journal_sentiment
-        shift = recent - baseline
-        
-        is_drift = abs(shift) > 0.3
-        severity = "high" if shift < -0.5 else ("medium" if shift < -0.3 else "low")
-        
-        return is_drift, severity, {
-            "sentiment_shift": round(shift, 2),
-            "baseline_value": round(baseline, 2),
-            "current_value": round(recent, 2)
-        }
 ```
 
 ### ml/risk_predictor.py
 ```python
 import numpy as np
+from datetime import datetime, timedelta
 
 class CollapseRiskPredictor:
     """Predicts risk of mental collapse."""
@@ -203,21 +161,16 @@ class CollapseRiskPredictor:
         completed = len([t for t in tasks_7d if t.completed_at])
         rate = (completed / len(tasks_7d) * 100) if tasks_7d else 100
         activity_score = 60 if rate < 30 else (40 if rate < 50 else 0)
-        if rate < 30:
-            risk_factors.append(f"Task completion critically low: {rate:.0f}%")
         scores["activity"] = activity_score
         
         # Sentiment component
         avg_sentiment = np.mean([j.sentiment_score for j in journal_7d]) if journal_7d else 0
         sentiment_score = 60 if avg_sentiment < -0.5 else (35 if avg_sentiment < -0.2 else 0)
-        if avg_sentiment < -0.5:
-            risk_factors.append(f"Highly negative sentiment: {avg_sentiment:.2f}")
         scores["sentiment"] = sentiment_score
         scores["social"] = 0
         
-        # Composite score
+        # Composite
         composite = np.mean(list(scores.values()))
-        
         data_points = len(sleep_7d) + len(tasks_7d) + len(journal_7d)
         confidence = min(data_points / 21, 1.0)
         
@@ -235,7 +188,6 @@ class CollapseRiskPredictor:
         }
     
     def _get_recent(self, items, days):
-        from datetime import datetime, timedelta
         cutoff = datetime.utcnow() - timedelta(days=days)
         return [item for item in items if item.created_at >= cutoff]
     
@@ -358,15 +310,12 @@ volumes:
 ## 5. Quick Start
 
 ```bash
-# Clone & setup
 git clone https://github.com/khangxD1304/mental-drift.git
 cd mental-drift
-
-# Run with Docker
 docker-compose up -d
 
-# API available at: http://localhost:8000/docs
+# API: http://localhost:8000/docs
 # Database: postgresql://localhost:5432/mental_drift
 ```
 
-Backend prototype is ready to extend with full API endpoints.
+Backend is ready to extend with full API endpoints.
